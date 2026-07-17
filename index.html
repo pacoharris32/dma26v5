@@ -262,7 +262,13 @@
 <script src="https://framework-gb.cdn.gob.mx/gobmx.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
 
-<script defer>
+<script>
+// CORRECCIÓN: "defer" no tiene efecto en scripts inline (sin src), así que este
+// bloque se ejecutaba de inmediato, antes de que Leaflet (que sí es diferido)
+// terminara de cargar -> de ahí el error "L is not defined". La solución es
+// esperar explícitamente a DOMContentLoaded, que SÍ se dispara después de que
+// todos los scripts con defer terminaron de ejecutarse, en orden.
+document.addEventListener('DOMContentLoaded', function () {
   let tableData = [], geoData = null, acuiferosGeoData = null;
   let estadoCapa = null, acuiferosCapa = null;
   let poligonoSeleccionado = null; // polígono de acuífero resaltado por clic en el mapa
@@ -708,6 +714,19 @@ map.on('zoomend', actualizarVisibilidadEtiquetas);
     }
   });
   // ─────────────────────────────────────────────────────────────────────
+
+  // Estas funciones se invocan directamente desde atributos onclick="..." en
+  // el HTML (ej. onclick="zoomAcuifero('123')"). Como ahora viven dentro del
+  // callback de DOMContentLoaded, hay que "publicarlas" explícitamente en
+  // window para que el HTML las siga encontrando; si no, quedarían atrapadas
+  // en este scope y el HTML tronaría con "zoomAcuifero is not defined".
+  window.toggleMenu = toggleMenu;
+  window.abrirModal = abrirModal;
+  window.cerrarModal = cerrarModal;
+  window.ordenarPorColumna = ordenarPorColumna;
+  window.zoomAcuifero = zoomAcuifero;
+
+}); // fin de DOMContentLoaded
 </script>
 </body>
 </html>
