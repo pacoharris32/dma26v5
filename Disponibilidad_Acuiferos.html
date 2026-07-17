@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CONAGUA – Disponibilidad por Acuíferos</title>
+  <meta name="description" content="Herramienta de consulta de datos de la Disponibilidad Media Anual de Acuíferos. Disponibilidad de Aguas Subterráneas">
+  <link href="https://sigagis.conagua.gob.mx/t_estudios24/img/favicon.ico" rel="shortcut icon">
+  <link href="https://framework-gb.cdn.gob.mx/assets/styles/main.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Source+Sans+3:wght@400;600&display=swap"/>
+  <style>
+    :root{
+      --guinda:#6d1226;--guinda-dk:#4a0c1a;--guinda-lt:#8d1a33;
+      --cafe:#a57f2c;--cafe-dk:#DDC9A3;--cafe-lt:Khaki;
+
+      --gold:#c8972b;--bg:#f4f4f4;--white:#ffffff;
+      --gray-lt:#e8e8e8;--gray:#ccc;--text:#2b2b2b;--text-lt:#666;
+      --font-h:'Montserrat',sans-serif;--font-b:'Source Sans 3',sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-b);background:var(--bg);color:var(--text); padding-top: 0 !important;}
+
+    /* Barra de Navegación Visible */
+    .custom-header {
+      background-color: var(--guinda-dk) !important;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative !important;
+      z-index: 999 !important;
+      border-bottom: 3px solid var(--gold);
+      min-height: 65px;
+      margin-top: 80px; /* compensa el header fijo del CDN gob.mx */
+    }
+    .header-brand { display: flex; align-items: center; gap: 15px; }
+    .header-brand img { height: 38px; width: auto; }
+    .header-brand h1 {
+      color: #fff;
+      font-family: var(--font-h);
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+      text-transform: uppercase;
+    }
+
+    /* Contenedor de los dos menús, lado a lado, alineados a la derecha */
+    .nav-menus-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Botón/encabezado de cada menú (Información Relevante / Descarga de Información) */
+    .nav-menu-toggle {
+      display: inline-block;
+      background: #a57f2c !important;
+      color: #fff !important;
+      font-family: var(--font-h);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      border: 1px solid #fff;
+      border-radius: 10px;
+      padding: 8px 16px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* Wrapper individual de cada dropdown */
+    .nav-info-wrapper { position: relative; }
+    .nav-info-wrapper .dropdown-menu { right: 0; left: auto; z-index: 1001; }
+
+    /* Submenú desplegable: fondo blanco, texto negro, hover en guinda */
+    .nav-submenu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      margin-top: 6px;
+      background: #fff;
+      list-style: none;
+      padding: 5px 0;
+      border-radius: 4px;
+      min-width: 220px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      z-index: 2000;
+    }
+    .nav-submenu li a {
+      display: block;
+      padding: 8px 16px;
+      color: #000;
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .nav-submenu li a:hover {
+      color: #611232;
+    }
+
+    /* Controles y Mapa */
+    #map{width:100%; height:700px; border-bottom:3px solid var(--guinda); position:relative; z-index: 1;}
+
+    /* Filtro de Estado: overlay fijo en la esquina superior izquierda del mapa.
+       Antes ocupaba una barra completa arriba del mapa (.controls); ahora vive
+       dentro de #map para liberar esa altura y dársela al mapa. */
+    .map-controls-overlay{
+      position:absolute; top:12px; left:12px; z-index:1000;
+      background:#fff; padding:10px 14px; border-radius:6px;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      max-width:calc(100% - 24px);
+    }
+
+    /* Intercambio de posiciones con el filtro: el control de zoom de Leaflet
+       (que por defecto se coloca en la esquina superior izquierda, encima del
+       filtro) se recorre hacia abajo para quedar debajo del overlay del filtro. */
+    #map .leaflet-top.leaflet-left .leaflet-control-zoom{
+      margin-top:100px !important;
+    }
+
+    .estado-label{background:var(--guinda)!important;color:#fff!important;border-radius:4px!important;font-family:var(--font-h)!important;font-size:12px!important;padding:4px 10px!important;box-shadow:0 2px 6px rgba(0,0,0,.3)!important}
+    .acuifero-label{background:var(--cafe)!important;color:#fff!important;border-radius:10px!important;font-family:var(--font-h)!important;font-size:10px!important;padding:4px 10px!important;box-shadow:0 2px 6px rgba(0,0,0,.3)!important}
+
+    /* Fila de la tabla resaltada al hacer clic en un polígono del mapa */
+    #acuiferosTable tbody tr.fila-resaltada{
+      background-color:rgba(157,36,73,.15)!important;
+      box-shadow:inset 4px 0 0 #9d2449;
+      transition:background-color .3s ease;
+    }
+
+    .table-section{padding:20px 24px}
+    .table-scroll{max-height:340px; overflow-y:auto; overflow-x:auto;}
+    .table-scroll thead th{position:sticky; top:0; background:#fff; z-index:2; box-shadow:0 2px 2px rgba(0,0,0,.08);}
+    .th-ordenable{cursor:pointer; user-select:none;}
+    .th-ordenable:hover{background:var(--gray-lt);}
+    .orden-icono{font-size:10px; margin-left:3px; color:var(--guinda);}
+    .table-header{background:var(--guinda); color:#fff; padding:10px 15px; display:flex; justify-content:space-between; align-items:center;}
+    
+    footer{background:var(--guinda-dk); color:rgba(255,255,255,0.8); text-align:center; padding:20px; font-size:12px; border-top:3px solid var(--gold);}
+    
+    .modal-header-conagua { background: var(--guinda); color: #fff; padding: 15px; border-bottom: 2px solid var(--gold); }
+    .modal-header-conagua .close { color: #fff; opacity: 1; }
+  </style>
+</head>
+<body>
+
+
+<div class="custom-header">
+  <div class="header-brand">
+    <img src="img/Logo_CONAGUA_W_I.png" alt="CONAGUA">
+    <h1>Gerencia de Aguas Subterráneas | Disponibilidad Media Anual de Agua Subterránea</h1>
+  </div>
+  <div class="nav-menus-wrapper">
+
+    <!-- Menú 1: Información Relevante -->
+    <div class="nav-info-wrapper">
+      <a href="#" class="nav-menu-toggle" onclick="toggleMenu(event,'infoMenu')">Información Relevante <span class="caret"></span></a>
+      <ul id="infoMenu" class="nav-submenu">
+        <li><a href="#" onclick="abrirModal(event)">Acerca de...</a></li>
+        <li><a href="disponibilidad_agua_subterranea.html" target="_blank">Disponibilidad Media Anual de Agua Subterránea</a></li>
+      </ul>
+    </div>
+
+    <!-- Menú 2: Descarga de Información -->
+    <div class="nav-info-wrapper">
+      <a href="#" class="nav-menu-toggle" onclick="toggleMenu(event,'descargaMenu')">Descarga de Información <span class="caret"></span></a>
+      <ul id="descargaMenu" class="nav-submenu">
+        <li><a href="docs/c_acuiferos_09112023.zip" target="_blank">Descarga de capa de información</a></li>
+        <li><a href="docs/2023_ACUIFEROS_DMA.pdf" target="_blank">Descarga de Metadatos</a></li>
+        <li><a href="./docs/Manual_de_Usuario_DMA26.pdf" target="_blank">Manual del Usuario</a></li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div id="map">
+  <div class="map-controls-overlay">
+    <label style="font-family:var(--font-h); font-size:12px; font-weight:600; color:var(--guinda);">Selecciona un Estado</label>
+    <select id="estadoSelect" style="padding:6px; border:2px solid var(--guinda); border-radius:4px; min-width:240px; font-size:15px;" disabled>
+      <option value="">Cargando Estados...</option>
+    </select>
+  </div>
+</div>
+
+<div class="table-section">
+  <div class="table-header">
+    <h3 id="tableTitle" style="margin:0; font-size:13px; font-weight:700;">Selecciona un estado para ver los Acuíferos</h3>
+    <input type="text" id="searchInput" placeholder="🔍Buscar Acuífero"  title="Para reiniciar el filtro, borre el texto introducido" style="color:#333; padding:4px 10px; border-radius:4px; border:none; font-size:12px;">
+  </div>
+  <div class="table-scroll">
+    <table id="acuiferosTable" class="table table-striped" style="font-size:13px;">
+      <thead>
+        <tr>
+          <th>Acuífero</th>
+          <th class="th-ordenable" onclick="ordenarPorColumna(3)">R <span class="orden-icono" data-col="3"></span></th>
+          <th class="th-ordenable" onclick="ordenarPorColumna(4)">DNC <span class="orden-icono" data-col="4"></span></th>
+          <th class="th-ordenable" onclick="ordenarPorColumna(5)">VEAS <span class="orden-icono" data-col="5"></span></th>
+          <th class="th-ordenable" onclick="ordenarPorColumna(6)">DMA <span class="orden-icono" data-col="6"></span></th>
+          <th>Estudio</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="6" style="text-align:center; padding:40px;">Realizar una selección en el filtro Estado para mostrar resultados.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<footer>
+  <!-- <p><strong>CONAGUA</strong> · Subdirección General Técnica · Gerencia de Aguas Subterráneas · SIGA 2026</p>
+  <p><strong></strong>Datos publicados en el Acuerdo por el que se actualiza la disponibilidad media anual de agua subterránea de los 653 acuíferos de los Estados Unidos Mexicanos</p>
+  <p><strong>Fecha de Publicación en el Diario Oficial de la Federación: </strong>9 de noviembre de 2023</p> -->
+  <strong>R: </strong>Recarga Media Anual; <strong>DNC: </strong>Descarga Natural Comprometida; <strong>VEAS: </strong>Volumen de Extracción de Aguas Subterráneas; <strong>DMA: </strong>Disponibilidad Media Anual de Agua Subterránea
+  <p><strong>NOTA: </strong>Las cifras de las variables representadas en los datos de los Acuíferos se encuentran en hectómetros cúbicos (hm<sup>3</sup>)</p>
+</footer>
+
+<!-- MODAL NATIVO (sin Bootstrap) -->
+<div id="bienvenidaModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5);
+     z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:6px; max-width:480px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3); overflow:hidden;">
+    <div class="modal-header-conagua" style="display:flex; justify-content:space-between; align-items:center;">
+      <h4 style="margin:0; font-size:15px;">Disponibilidad Media Anual de Agua Subterránea</h4>
+      <button onclick="cerrarModal()" style="background:none; border:none; color:#fff; font-size:22px; cursor:pointer; line-height:1;">&times;</button>
+    </div>
+     <div style="text-align:center; padding:30px;">
+      <img src="https://sigagis.conagua.gob.mx/img/L140x38.jpg" width="220" style="margin-bottom:15px;">
+      <h4 style="margin:8px 0 4px;">Subdirección General Técnica</h4>
+      <h5 style="margin:0 0 12px; font-weight:400;">Gerencia de Aguas Subterráneas</h5>
+      <h5 style="margin:0 0 12px; font-weight:400;">Subgerencia de Información Geográfica del Agua</h5>
+      <hr style="margin:12px 0;">
+      <p><b>Disponibilidad Media Anual de Agua Subterránea</b></p>
+      <p style="margin:8px 0;">Permite la consulta de los datos de la Disponibilidad Media Anual de Aguas Subterráneas de los Acuíferos del país.</p>
+      <p style="margin-top:12px;"><small>Datos presentados conforme a la publicación del </small></p>
+      <p style="margin-top:12px;"><small>Diario Oficial de la Federación, 9 de noviembre de 2023</small></p>
+      <button onclick="cerrarModal()" style="margin-top:20px; padding:8px 16px; background:var(--guinda); color:#fff; border:none; border-radius:4px; cursor:pointer;">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<script src="https://framework-gb.cdn.gob.mx/gobmx.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+  let tableData = [], geoData = null, acuiferosGeoData = null;
+  let estadoCapa = null, acuiferosCapa = null;
+  let poligonoSeleccionado = null; // polígono de acuífero resaltado por clic en el mapa
+  const COLOR_ACUIFERO = '#193CB8';
+  const COLOR_ACUIFERO_SELECCIONADO = '#9d2449';
+
+ const NOMBRE_MAP = {
+  "AGUASCALIENTES":      "Aguascalientes",
+  "BAJA CALIFORNIA":     "Baja California",
+  "BAJA CALIFORNIA SUR": "Baja California Sur",
+  "CAMPECHE":            "Campeche",
+  "CHIAPAS":             "Chiapas",
+  "CHIHUAHUA":           "Chihuahua",
+  "CIUDAD DE MÉXICO":    "Ciudad de México",
+  "COAHUILA":            "Coahuila de Zaragoza",
+  "COLIMA":              "Colima",
+  "DURANGO":             "Durango",
+  "MÉXICO":              "México",
+  "GUANAJUATO":          "Guanajuato",
+  "GUERRERO":            "Guerrero",
+  "HIDALGO":             "Hidalgo",
+  "JALISCO":             "Jalisco",
+  "MICHOACÁN":           "Michoacán de Ocampo",
+  "MORELOS":             "Morelos",
+  "NAYARIT":             "Nayarit",
+  "NUEVO LEÓN":          "Nuevo León",
+  "OAXACA":              "Oaxaca",
+  "PUEBLA":              "Puebla",
+  "QUERÉTARO":           "Querétaro",
+  "QUINTANA ROO":        "Quintana Roo",
+  "SAN LUIS POTOSÍ":     "San Luis Potosí",
+  "SINALOA":             "Sinaloa",
+  "SONORA":              "Sonora",
+  "TABASCO":             "Tabasco",
+  "TAMAULIPAS":          "Tamaulipas",
+  "TLAXCALA":            "Tlaxcala",
+  "VERACRUZ":            "Veracruz de Ignacio de la Llave",
+  "YUCATÁN":             "Yucatán",
+  "ZACATECAS":           "Zacatecas"
+};
+
+// Mapa inverso: convierte el NOMGEO del geojson (ej. "Jalisco") de vuelta al
+// nombre usado en los datos y en las opciones del <select> (ej. "JALISCO").
+// Se usa para identificar qué Estado se seleccionó al hacer clic en su polígono.
+const NOMGEO_TO_ESTADO = {};
+Object.entries(NOMBRE_MAP).forEach(([estado, nomgeo]) => {
+  NOMGEO_TO_ESTADO[nomgeo.toUpperCase()] = estado;
+});
+
+
+// 1. CONFIGURACIÓN DEL MAPA
+const mexicoBounds = L.latLngBounds(
+  L.latLng(13.5, -119.0),
+  L.latLng(33.5,  -84.5)
+);
+
+const map = L.map('map', {
+  minZoom:  5.49,
+  maxZoom:  11,
+  maxBounds: mexicoBounds,
+  maxBoundsViscosity: 1.0
+});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | © <a href="https://sigagis.conagua.gob.mx/gas1">CONAGUA-SGT-GAS-SIGA</a>',
+  maxZoom:18
+}).addTo(map);
+
+// El filtro de Estado ahora vive dentro del contenedor del mapa (overlay fijo
+// en la esquina superior izquierda). Se desactiva la propagación de clics y
+// scroll hacia el mapa para que interactuar con el <select> no arrastre ni
+// haga zoom en el mapa.
+const controlesOverlay = document.querySelector('.map-controls-overlay');
+if (controlesOverlay) {
+  L.DomEvent.disableClickPropagation(controlesOverlay);
+  L.DomEvent.disableScrollPropagation(controlesOverlay);
+}
+
+// La vista inicial (país completo, sin Estado seleccionado) usa fitBounds para
+// mostrar el 100% del territorio de México (Norte-Sur y Este-Oeste) dentro del
+// contenedor del mapa. Con la altura actual del mapa, esto ya no deja tanto
+// sobrante hacia Cuba/Bahamas ni más allá de las islas del Pacífico. Al
+// seleccionar un Estado, la vista se ajusta de forma independiente y no se ve
+// afectada por esto.
+function ajustarVistaInicial() {
+  const tamano = map.getSize();
+  if (!tamano.x || !tamano.y) return; // el contenedor aún no tiene medidas (edge case)
+
+  map.fitBounds(mexicoBounds, { padding: [10, 10] });
+}
+
+ajustarVistaInicial();
+
+// Si el usuario redimensiona la ventana estando en la vista general (sin Estado
+// seleccionado), se vuelve a calcular el ajuste para que siga viéndose completo
+window.addEventListener('resize', () => {
+  if (!acuiferosCapa) ajustarVistaInicial();
+});
+
+// Nivel de zoom mínimo a partir del cual se muestran las etiquetas de los acuíferos
+// (evita que se empalmen cuando un estado tiene muchos acuíferos pequeños/cercanos)
+const UMBRAL_ZOOM_ETIQUETAS = 9;
+
+function actualizarVisibilidadEtiquetas() {
+  if (!acuiferosCapa) return;
+  const mostrar = map.getZoom() >= UMBRAL_ZOOM_ETIQUETAS;
+  acuiferosCapa.eachLayer(l => {
+    if (!l.getTooltip()) return;
+    if (mostrar && !l.isTooltipOpen()) l.openTooltip();
+    else if (!mostrar && l.isTooltipOpen()) l.closeTooltip();
+  });
+}
+
+map.on('zoomend', actualizarVisibilidadEtiquetas);
+
+
+  Promise.all([
+    fetch('assets/geojson/estados.geojson').then(r => r.json()),
+    fetch('assets/data/acuiferos.json').then(r => r.json()),
+    fetch('assets/geojson/acuiferos.geojson').then(r => r.json())
+  ]).then(([geo, datos, geoAcuiferos]) => {
+    geoData = geo; tableData = datos; acuiferosGeoData = geoAcuiferos;
+    L.geoJSON(geoData, {
+      style:{ color:'#999', weight:0.7, fillOpacity:0.05 },
+      onEachFeature: (f, l) => {
+        l.on('click', () => seleccionarEstadoDesdeMapa(f.properties.NOMGEO));
+      }
+    }).addTo(map);
+    const select = document.getElementById('estadoSelect');
+    [...new Set(tableData.map(r => r[0]))].sort().forEach(e => {
+      const o = document.createElement('option'); o.value = e; o.textContent = e; select.appendChild(o);
+    });
+    select.disabled = false;
+    select.firstElementChild.textContent = "Regresar al Inicio";
+  });
+
+  // (listener de estado movido al bloque del buscador)
+
+  function zoomEstado(estado) {
+    // ELIMINACIÓN CORRECTA PARA PERMITIR MULTIZOOM
+    if (estadoCapa) map.removeLayer(estadoCapa);
+    if (acuiferosCapa) map.removeLayer(acuiferosCapa);
+    poligonoSeleccionado = null; // el estado cambió, ya no hay polígono seleccionado vigente
+
+    const nomgeo = NOMBRE_MAP[estado] || estado;
+    const featEstado = { 
+      type:'FeatureCollection', 
+      features: geoData.features.filter(f => f.properties.NOMGEO.toUpperCase() === nomgeo.toUpperCase()) 
+    };
+
+  //  estadoCapa = L.geoJSON(featEstado, { style:{ color:'#6d1226', weight:4, fillOpacity:0, dashArray:'5,10' } }).addTo(map);
+    estadoCapa = L.geoJSON(featEstado, { style:{ color:'#6d1226', weight:4, fillOpacity:0 } }).addTo(map);
+    
+    estadoCapa.eachLayer(l => {
+      l.bindTooltip(estado, { permanent:true, direction:'center', className:'estado-label' }).openTooltip();
+    });
+
+    const featAcu = { 
+      type:'FeatureCollection', 
+      features: acuiferosGeoData.features.filter(f => f.properties.NOM_EDO && f.properties.NOM_EDO.toUpperCase() === estado.toUpperCase()) 
+    };
+
+    acuiferosCapa = L.geoJSON(featAcu, {
+      style: { color:COLOR_ACUIFERO, weight:1.2, fillColor:COLOR_ACUIFERO, fillOpacity:0.1 },
+      onEachFeature: (f, l) => {
+        const clave = f.properties.CLV_ACUI || '';
+        const nombre = f.properties.NOM_ACUI;
+        const etiqueta = clave ? `${clave} - ${nombre}` : nombre;
+        l.bindTooltip(etiqueta, {
+          permanent: true,
+          direction: 'center',
+          className: 'acuifero-label'
+        }); // la visibilidad inicial la decide actualizarVisibilidadEtiquetas() según el zoom
+
+        l.on('click', () => seleccionarAcuifero(l, clave));
+      }
+    }).addTo(map);
+
+    actualizarVisibilidadEtiquetas();
+
+    // Ajuste de zoom dinámico
+    if (estadoCapa.getLayers().length > 0) {
+      map.fitBounds(estadoCapa.getBounds(), { padding: [30, 30] });
+    }
+  }
+
+  // ── SELECCIÓN DE ESTADO DESDE EL MAPA ─────────────────────────────────
+  // Permite seleccionar un Estado directamente al hacer clic en su polígono,
+  // ya sea en la vista general del país o en el Estado vecino que se asome
+  // al hacer zoom. En vez de duplicar la lógica de carga de acuíferos y
+  // tabla, sincroniza el <select> y dispara su evento 'change' nativo, para
+  // que ambas formas de selección (filtro desplegable y clic en el mapa)
+  // ejecuten exactamente el mismo flujo y nunca queden desincronizadas.
+  function seleccionarEstadoDesdeMapa(nomgeo) {
+    const estado = NOMGEO_TO_ESTADO[(nomgeo || '').toUpperCase()];
+    if (!estado) return; // nombre no reconocido, no se hace nada
+
+    const select = document.getElementById('estadoSelect');
+    const opcionValida = Array.from(select.options).some(o => o.value === estado);
+    if (!opcionValida) return;
+
+    select.value = estado;
+    select.dispatchEvent(new Event('change'));
+  }
+  // ──────────────────────────────────────────────────────────────────────
+
+  // datosVisibles guarda siempre el arreglo que está actualmente pintado en la
+  // tabla (venga de filtradosEstado o de una búsqueda), para poder ordenarlo
+  // sin importar cuál fue el origen de esos datos.
+  let datosVisibles = [];
+  let columnaOrden = null;      // índice (dentro de cada fila r[]) de la columna ordenada actualmente
+  let ordenDescendente = true;  // true = mayor a menor, false = menor a mayor
+
+  function renderTabla(datos) {
+    datosVisibles = datos;
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = datos.map(r => `
+      <tr data-clave="${r[1]}">
+        <td><a href="javascript:void(0)" onclick="zoomAcuifero('${r[1]}')">📍 ${r[1]} - ${r[2]}</a></td>
+        <td>${parseFloat(r[3]).toLocaleString('es-MX')}</td>
+        <td>${parseFloat(r[4]).toLocaleString('es-MX')}</td>
+        <td>${parseFloat(r[5]).toLocaleString('es-MX')}</td>
+        <td style="color:${parseFloat(r[6]) < 0 ? '#c0392b' : '#27ae60'}; font-weight:700;">${parseFloat(r[6]).toLocaleString('es-MX')}</td>
+        <td><a class="btn-pdf" href="${r[7]}" target="_blank"><img src="img/pdf2.png" alt="PDF" style="width:50px; height:50px; object-fit:contain; vertical-align:middle;"></a></td>
+      </tr>`).join('');
+  }
+
+  // ── ORDENAMIENTO DE COLUMNAS (R, DNC, VEAS, DMA) ───────────────────────
+  // indiceColumna corresponde a la posición del valor dentro de cada fila r[]:
+  // r[3]=R, r[4]=DNC, r[5]=VEAS, r[6]=DMA
+  function ordenarPorColumna(indiceColumna) {
+    if (!datosVisibles.length) return; // nada que ordenar todavía
+
+    if (columnaOrden === indiceColumna) {
+      // Mismo encabezado: alternar la dirección (mayor↔menor)
+      ordenDescendente = !ordenDescendente;
+    } else {
+      // Encabezado distinto: se ordena de mayor a menor por defecto
+      columnaOrden = indiceColumna;
+      ordenDescendente = true;
+    }
+
+    const datosOrdenados = [...datosVisibles].sort((a, b) => {
+      const valorA = parseFloat(a[indiceColumna]);
+      const valorB = parseFloat(b[indiceColumna]);
+      return ordenDescendente ? valorB - valorA : valorA - valorB;
+    });
+
+    renderTabla(datosOrdenados);
+    actualizarIconosOrden();
+  }
+
+  // Muestra ▼ (mayor a menor) o ▲ (menor a mayor) solo en la columna activa
+  function actualizarIconosOrden() {
+    document.querySelectorAll('.orden-icono').forEach(icono => {
+      const esColumnaActiva = Number(icono.dataset.col) === columnaOrden;
+      icono.textContent = esColumnaActiva ? (ordenDescendente ? '▼' : '▲') : '';
+    });
+  }
+  // ──────────────────────────────────────────────────────────────────────
+
+  // ── SELECCIÓN DE ACUÍFERO DESDE EL MAPA ───────────────────────────────
+  function seleccionarAcuifero(layer, clave) {
+    // Restaurar el color de contorno del polígono previamente seleccionado
+    if (poligonoSeleccionado && poligonoSeleccionado !== layer) {
+      poligonoSeleccionado.setStyle({ color: COLOR_ACUIFERO });
+    }
+    layer.setStyle({ color: COLOR_ACUIFERO_SELECCIONADO });
+    poligonoSeleccionado = layer;
+
+    resaltarFilaTabla(clave);
+  }
+
+  function resaltarFilaTabla(clave) {
+    // Si hay un filtro de búsqueda activo, se limpia para asegurar que la fila esté visible
+    const search = document.getElementById('searchInput');
+    if (search.value) {
+      search.value = '';
+      renderTabla(filtradosEstado);
+      document.getElementById('tableTitle').textContent = `${filtradosEstado.length} Acuíferos de ${estadoActual}`;
+    }
+
+    let filaEncontrada = null;
+    document.querySelectorAll('#tableBody tr').forEach(tr => {
+      tr.classList.remove('fila-resaltada');
+      if (tr.dataset.clave === String(clave)) filaEncontrada = tr;
+    });
+
+    if (filaEncontrada) {
+      filaEncontrada.classList.add('fila-resaltada');
+      filaEncontrada.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────
+
+  // ── BUSCADOR INSTANTÁNEO ──────────────────────────────────────────────
+  // filtradosEstado guarda los registros del estado actual para poder
+  // buscar dentro de ellos sin perder el contexto del estado seleccionado
+  let filtradosEstado = [];
+  let estadoActual = ''; // nombre del estado seleccionado, para reconstruir el título al buscar
+
+  // Sobreescribir el listener de estado para guardar filtradosEstado
+  document.getElementById('estadoSelect').addEventListener('change', function() {
+    const estado = this.value;
+    if (!estado) {
+      regresarInicio();
+      return;
+    }
+    estadoActual = estado;
+    filtradosEstado = tableData.filter(r => r[0] === estado);
+    document.getElementById('searchInput').value = ''; // limpiar buscador al cambiar estado
+    columnaOrden = null; ordenDescendente = true; // reiniciar el ordenamiento de columnas al cambiar de estado
+    renderTabla(filtradosEstado);
+    actualizarIconosOrden();
+    zoomEstado(estado);
+    document.getElementById('tableTitle').textContent = `${filtradosEstado.length} Acuíferos de ${estado}`;
+  });
+
+  // Regresa el mapa y la tabla a la vista general del país (sin estado seleccionado)
+  function regresarInicio() {
+    if (estadoCapa)    { map.removeLayer(estadoCapa);    estadoCapa = null; }
+    if (acuiferosCapa) { map.removeLayer(acuiferosCapa); acuiferosCapa = null; }
+    poligonoSeleccionado = null;
+
+    ajustarVistaInicial(); // misma vista general con la que inicia el mapa
+
+    estadoActual = '';
+    filtradosEstado = [];
+    datosVisibles = [];
+    columnaOrden = null; ordenDescendente = true;
+    document.getElementById('searchInput').value = '';
+    document.getElementById('tableBody').innerHTML =
+      '<tr><td colspan="6" style="text-align:center; padding:40px;">Seleccione un estado para mostrar resultados.</td></tr>';
+    actualizarIconosOrden();
+    document.getElementById('tableTitle').textContent = 'Selecciona un estado para ver los acuíferos';
+  }
+
+  // El evento 'change' nativo de un <select> NO se dispara si el usuario elige
+  // la misma opción que ya estaba seleccionada (ej. reseleccionar BAJA CALIFORNIA
+  // estando ya en BAJA CALIFORNIA). Este bloque detecta ese caso y fuerza el
+  // refresco de la vista disparando 'change' manualmente.
+  (function habilitarReseleccion(selectEl) {
+    selectEl.addEventListener('mousedown', function() {
+      // Antes de que se abra la lista, marcamos cuál opción está seleccionada
+      Array.from(this.options).forEach(o => { o.dataset.eraSeleccionada = o.selected ? '1' : '0'; });
+    });
+    selectEl.addEventListener('click', function() {
+      // Al cerrarse la lista (haya cambiado el valor o no), revisamos si la opción
+      // elegida es la misma que ya estaba marcada como seleccionada
+      const opcionActual = this.options[this.selectedIndex];
+      if (this.value && opcionActual && opcionActual.dataset.eraSeleccionada === '1') {
+        this.dispatchEvent(new Event('change'));
+      }
+    });
+  })(document.getElementById('estadoSelect'));
+
+  document.getElementById('searchInput').addEventListener('input', function() {
+    const term = this.value.trim().toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, ""); // ignorar acentos al buscar
+
+    if (!term) {
+      // Sin texto: mostrar todos los del estado actual
+      renderTabla(filtradosEstado);
+      document.getElementById('tableTitle').textContent = `${filtradosEstado.length} Acuíferos de ${estadoActual}`;
+      return;
+    }
+
+    const resultado = filtradosEstado.filter(r => {
+      const clave  = (r[1] || '').toString().toLowerCase()
+        .normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const nombre = (r[2] || '').toString().toLowerCase()
+        .normalize("NFD").replace(/[̀-ͯ]/g, "");
+      return clave.includes(term) || nombre.includes(term);
+    });
+
+    renderTabla(resultado);
+    document.getElementById('tableTitle').textContent = `${resultado.length} Acuíferos de ${estadoActual}`;
+  });
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Referencia a la capa del acuífero activo para poder limpiarla al seleccionar otro
+  let capaAcuiferoActivo = null;
+
+  function zoomAcuifero(clave) {
+    if (!acuiferosCapa) return;
+
+    // Restaurar opacidad del acuífero previamente resaltado
+    if (capaAcuiferoActivo) {
+      capaAcuiferoActivo.setStyle({ fillOpacity: 0.1 });
+      capaAcuiferoActivo = null;
+    }
+
+    acuiferosCapa.eachLayer(l => {
+      if (String(l.feature.properties.CLV_ACUI) === String(clave)) {
+        // Zoom al polígono
+        map.fitBounds(l.getBounds(), { padding: [60, 60] });
+
+        // Resalte temporal (la etiqueta ya está visible de forma permanente)
+        l.setStyle({ fillOpacity: 0.5 });
+        setTimeout(() => l.setStyle({ fillOpacity: 0.1 }), 2000);
+
+        capaAcuiferoActivo = l;
+      }
+    });
+  }
+
+  // ── DROPDOWN Y MODAL NATIVOS (sin dependencia de Bootstrap) ──────────
+  // Ahora toggleMenu recibe el id del menú a mostrar/ocultar, porque
+  // existen dos menús independientes (Información Relevante y Descarga de Información)
+  function toggleMenu(e, menuId) {
+    e.preventDefault();
+    const menu = document.getElementById(menuId);
+    const estabaAbierto = menu.style.display === 'block';
+
+    // Cerrar cualquier otro menú abierto antes de mostrar el actual
+    document.querySelectorAll('.nav-submenu').forEach(m => m.style.display = 'none');
+
+    menu.style.display = estabaAbierto ? 'none' : 'block';
+  }
+
+  function abrirModal(e) {
+    e.preventDefault();
+    document.querySelectorAll('.nav-submenu').forEach(m => m.style.display = 'none');
+    const modal = document.getElementById('bienvenidaModal');
+    modal.style.display = 'flex';
+  }
+
+  function cerrarModal() {
+    document.getElementById('bienvenidaModal').style.display = 'none';
+  }
+
+  // Cerrar modal al hacer clic en el fondo oscuro
+  document.getElementById('bienvenidaModal').addEventListener('click', function(e) {
+    if (e.target === this) cerrarModal();
+  });
+
+  // Cerrar cualquier menú abierto al hacer clic fuera de él
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.nav-info-wrapper')) {
+      document.querySelectorAll('.nav-submenu').forEach(m => m.style.display = 'none');
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────
+</script>
+</body>
+</html>
