@@ -1,8 +1,5 @@
 name: Actualizar y simplificar estados.geojson (WFS CONAGUA)
 
-# Se ejecuta manualmente (botón "Run workflow" en la pestaña Actions de GitHub)
-# o automáticamente el día 1 de cada mes. Ajusta el cron si quieres otra
-# frecuencia, o quítalo si sólo lo quieres correr a mano.
 on:
   workflow_dispatch:
   schedule:
@@ -19,19 +16,38 @@ jobs:
         run: npm install -g mapshaper
 
       - name: Descargar la capa de Estados desde el WFS de CONAGUA
-        # Esta petición corre en un servidor de GitHub, no en un navegador,
-        # así que la política "Private/Local Network Access" no aplica aquí.
         run: |
-          curl -sS --fail \
-            "https://geosinav30.conagua.gob.mx:8080/geoserver/Sina/m00_estados/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=Sina:m00_estados&outputFormat=application/json&srsName=EPSG:4326" \
-            -o assets/geojson/estados-original.geojson
+          HTTP_CODE=$(curl -sS -o assets/geojson/estados-original.geojson -w "%{http_code}" \
+            "https://geosinav30.conagua.gob.mx:8080/geoserver/Sina/m00_estados/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=Sina:m00_estados&outputFormat=application/json&srsName=EPSG:4326")
+
+          echo "Código HTTP recibido del WFS: $HTTP_CODE"
+          echo "── Primeros 800 caracteres de la respuesta (diagnóstico) ──"
+          head -c 800 assets/geojson/estados-original.geojson
+          echo ""
+          echo "────────────────────────────────────────────────────────"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::El servidor respondió con código HTTP $HTTP_CODE (se esperaba 200). Revisa el contenido impreso arriba."
+            exit 1
+          fi
+
+          # GeoServer, cuando el request está mal formado (ej. typeName incorrecto),
+          # responde HTTP 200 pero con un XML de error en vez de GeoJSON. Esta
+          # verificación detecta ese caso específico, que de otra forma sólo se
+          # ve como un misterioso "exit code 1" en el paso de mapshaper.
+          if ! python3 -c "import json; json.load(open('assets/geojson/estados-original.geojson'))" 2>/dev/null; then
+            echo "::error::La respuesta del WFS NO es JSON válido (probablemente un ServiceExceptionReport en XML). Revisa el contenido impreso arriba para ver el motivo exacto que reporta el servidor -- normalmente indica el nombre correcto de la capa (typeName) a usar."
+            exit 1
+          fi
+
+          echo "Descarga verificada: la respuesta es JSON válido."
 
       - name: Simplificar geometría y reducir precisión
         run: |
           mapshaper assets/geojson/estados-original.geojson \
             -simplify 10% \
             -clean \
-            -o format=geojson precision=0.0001 force assets/geojson/estados.geojson
+            -o assets/geojson/estados.geojson format=geojson precision=0.0001 force
 
       - name: Quitar el archivo original (pesado) del workspace
         run: rm -f assets/geojson/estados-original.geojson
