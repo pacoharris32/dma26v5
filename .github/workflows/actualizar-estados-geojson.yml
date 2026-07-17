@@ -1,0 +1,45 @@
+name: Actualizar y simplificar estados.geojson (WFS CONAGUA)
+
+# Se ejecuta manualmente (botón "Run workflow" en la pestaña Actions de GitHub)
+# o automáticamente el día 1 de cada mes. Ajusta el cron si quieres otra
+# frecuencia, o quítalo si sólo lo quieres correr a mano.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 1 * *'
+
+jobs:
+  actualizar-geojson:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar mapshaper
+        run: npm install -g mapshaper
+
+      - name: Descargar la capa de Estados desde el WFS de CONAGUA
+        # Esta petición corre en un servidor de GitHub, no en un navegador,
+        # así que la política "Private/Local Network Access" no aplica aquí.
+        run: |
+          curl -sS --fail \
+            "https://geosinav30.conagua.gob.mx:8080/geoserver/Sina/m00_estados/wfs?service=WFS&version=1.1.0&request=GetFeature&typeName=Sina:m00_estados&outputFormat=application/json&srsName=EPSG:4326" \
+            -o assets/geojson/estados-original.geojson
+
+      - name: Simplificar geometría y reducir precisión
+        run: |
+          mapshaper assets/geojson/estados-original.geojson \
+            -simplify 10% \
+            -clean \
+            -o format=geojson precision=0.0001 force assets/geojson/estados.geojson
+
+      - name: Quitar el archivo original (pesado) del workspace
+        run: rm -f assets/geojson/estados-original.geojson
+
+      - name: Commit y push si hubo cambios
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/geojson/estados.geojson
+          git diff --staged --quiet || git commit -m "Actualiza estados.geojson (simplificado desde WFS CONAGUA)"
+          git push
