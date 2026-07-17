@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CONAGUA – Disponibilidad por Acuíferos</title>
   <meta name="description" content="Herramienta de consulta de datos de la Disponibilidad Media Anual de Acuíferos. Disponibilidad de Aguas Subterráneas">
-  <link href="https://sigagis.conagua.gob.mx/t_estudios24/img/favicon.ico" rel="shortcut icon">
+  <!-- CORREGIDO: la ruta remota a sigagis.conagua.gob.mx quedaba bloqueada por
+       la política Private/Local Network Access de Chrome en sitios públicos.
+       Descarga este archivo una sola vez y colócalo en tu repo en img/favicon.ico -->
+  <link href="img/favicon.ico" rel="shortcut icon">
 
   <!-- OPTIMIZACIÓN: preconnect/dns-prefetch abre la conexión (DNS + TLS) a cada
        dominio externo en paralelo, ANTES de que el navegador llegue a la línea
@@ -239,7 +242,9 @@
       <button onclick="cerrarModal()" style="background:none; border:none; color:#fff; font-size:22px; cursor:pointer; line-height:1;">&times;</button>
     </div>
      <div style="text-align:center; padding:30px;">
-      <img src="https://sigagis.conagua.gob.mx/img/L140x38.jpg" width="220" style="margin-bottom:15px;">
+      <!-- CORREGIDO: mismo bloqueo de red que el favicon. Descarga esta imagen
+           una sola vez y colócala en tu repo en img/L140x38.jpg -->
+      <img src="img/L140x38.jpg" width="220" style="margin-bottom:15px;">
       <h4 style="margin:8px 0 4px;">Subdirección General Técnica</h4>
       <h5 style="margin:0 0 12px; font-weight:400;">Gerencia de Aguas Subterráneas</h5>
       <h5 style="margin:0 0 12px; font-weight:400;">Subgerencia de Información Geográfica del Agua</h5>
@@ -373,36 +378,29 @@ function actualizarVisibilidadEtiquetas() {
 
 map.on('zoomend', actualizarVisibilidadEtiquetas);
 
-// ── CAPA DE ESTADOS VÍA WFS (en vez de assets/geojson/estados.geojson) ──
-// Se eligió WFS y no WMS porque la app necesita la GEOMETRÍA real de cada
-// estado (para hacer clic sobre un polígono, filtrar por nombre y calcular
-// fitBounds al hacer zoom). WMS sólo entrega una imagen ya dibujada; con eso
-// no se puede interactuar con un estado en particular. WFS, en cambio,
-// entrega un FeatureCollection GeoJSON -- el mismo formato que ya usaba el
-// archivo local -- así que el resto del código no necesita cambiar.
-const WFS_ESTADOS_URL =
-  'https://geosinav30.conagua.gob.mx:8080/geoserver/Sina/m00_estados/wfs' +
-  '?service=WFS&version=1.1.0&request=GetFeature' +
-  '&typeName=Sina:m00_estados' +
-  '&outputFormat=application/json' +
-  '&srsName=EPSG:4326';
+// ── CAPA DE ESTADOS: archivo LOCAL simplificado (ya NO fetch directo al WFS) ──
+// Se intentó consumir el WFS de CONAGUA directo desde el navegador, pero Chrome
+// lo bloquea con la política "Private/Local Network Access": ese servidor
+// resuelve a una dirección de red que el navegador considera "interna", y
+// un sitio público (GitHub Pages) tiene prohibido pedirle datos directamente,
+// sin importar que el WFS tenga o no CORS bien configurado. Esto NO se puede
+// resolver con JavaScript del lado del cliente.
+//
+// La solución: un workflow de GitHub Actions (corre en el servidor, no en el
+// navegador, así que la política no aplica) descarga el WFS, lo simplifica
+// con mapshaper, y sube automáticamente este archivo ya liviano al repo.
+// Aquí sólo se lee ese resultado, como archivo local normal.
+const RUTA_ESTADOS_GEOJSON = 'assets/geojson/estados.geojson';
 
-// El resto del código espera que cada feature tenga f.properties.NOMGEO.
-// Como no puedo verificar en este momento cómo se llama exactamente ese
-// campo en el servidor de CONAGUA (puede venir como NOMGEO, NOM_ENT,
-// ESTADO, etc.), esta función revisa varios nombres posibles y "traduce"
-// el que encuentre a NOMGEO, para que zoomEstado() y el resto de la lógica
-// sigan funcionando sin más cambios. Si no encuentra ninguno, lo avisa en
-// consola para que ajustes CAMPOS_NOMBRE_POSIBLES según lo que veas ahí.
+// El archivo generado por el workflow puede traer el nombre del estado en la
+// propiedad "estado" (tal como lo entrega el WFS de CONAGUA) en vez de
+// "NOMGEO" (como el archivo local original). Esta función normaliza eso para
+// que el resto del código (zoomEstado, seleccionarEstadoDesdeMapa, etc.) siga
+// funcionando exactamente igual sin más cambios.
 const CAMPOS_NOMBRE_POSIBLES = ['NOMGEO', 'nomgeo', 'NOM_ENT', 'nom_ent', 'ESTADO', 'estado', 'NOMBRE', 'nombre'];
 
 function normalizarCampoNombreEstado(featureCollection) {
   if (!featureCollection || !Array.isArray(featureCollection.features)) return featureCollection;
-
-  if (featureCollection.features[0]) {
-    console.log('Propiedades recibidas del WFS de estados (revisar si NOMGEO viene distinto):',
-      featureCollection.features[0].properties);
-  }
 
   featureCollection.features.forEach(f => {
     if (!f.properties || f.properties.NOMGEO) return; // ya trae NOMGEO, no hay que tocarlo
@@ -415,7 +413,7 @@ function normalizarCampoNombreEstado(featureCollection) {
 // ─────────────────────────────────────────────────────────────────────
 
   Promise.all([
-    fetch(WFS_ESTADOS_URL).then(r => r.json()).then(normalizarCampoNombreEstado),
+    fetch(RUTA_ESTADOS_GEOJSON).then(r => r.json()).then(normalizarCampoNombreEstado),
     fetch('assets/data/acuiferos.json').then(r => r.json()),
     fetch('assets/geojson/acuiferos.geojson').then(r => r.json())
   ]).then(([geo, datos, geoAcuiferos]) => {
@@ -426,6 +424,23 @@ function normalizarCampoNombreEstado(featureCollection) {
         l.on('click', () => seleccionarEstadoDesdeMapa(f.properties.NOMGEO));
       }
     }).addTo(map);
+
+    // VALIDACIÓN: avisa en consola si algún nombre de estado que vino del WFS
+    // no coincide con los valores de NOMBRE_MAP (ej. "Coahuila" en vez de
+    // "Coahuila de Zaragoza"). Sin esto, ese estado se vería en el mapa pero
+    // el clic sobre su polígono fallaría silenciosamente al no encontrarlo
+    // en NOMGEO_TO_ESTADO.
+    const nombresWFS = new Set(geo.features.map(f => (f.properties.NOMGEO || '').toUpperCase()));
+    const nombresEsperados = new Set(Object.values(NOMBRE_MAP).map(n => n.toUpperCase()));
+    const noCoincide = [...nombresWFS].filter(n => n && !nombresEsperados.has(n));
+    if (noCoincide.length) {
+      console.warn(
+        'Estos nombres de estado vinieron del WFS pero NO coinciden con NOMBRE_MAP ' +
+        '(el clic sobre su polígono no funcionará hasta ajustar NOMBRE_MAP):',
+        noCoincide
+      );
+    }
+
     const select = document.getElementById('estadoSelect');
     [...new Set(tableData.map(r => r[0]))].sort().forEach(e => {
       const o = document.createElement('option'); o.value = e; o.textContent = e; select.appendChild(o);
