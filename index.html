@@ -373,9 +373,49 @@ function actualizarVisibilidadEtiquetas() {
 
 map.on('zoomend', actualizarVisibilidadEtiquetas);
 
+// ── CAPA DE ESTADOS VÍA WFS (en vez de assets/geojson/estados.geojson) ──
+// Se eligió WFS y no WMS porque la app necesita la GEOMETRÍA real de cada
+// estado (para hacer clic sobre un polígono, filtrar por nombre y calcular
+// fitBounds al hacer zoom). WMS sólo entrega una imagen ya dibujada; con eso
+// no se puede interactuar con un estado en particular. WFS, en cambio,
+// entrega un FeatureCollection GeoJSON -- el mismo formato que ya usaba el
+// archivo local -- así que el resto del código no necesita cambiar.
+const WFS_ESTADOS_URL =
+  'https://geosinav30.conagua.gob.mx:8080/geoserver/Sina/m00_estados/wfs' +
+  '?service=WFS&version=1.1.0&request=GetFeature' +
+  '&typeName=Sina:m00_estados' +
+  '&outputFormat=application/json' +
+  '&srsName=EPSG:4326';
+
+// El resto del código espera que cada feature tenga f.properties.NOMGEO.
+// Como no puedo verificar en este momento cómo se llama exactamente ese
+// campo en el servidor de CONAGUA (puede venir como NOMGEO, NOM_ENT,
+// ESTADO, etc.), esta función revisa varios nombres posibles y "traduce"
+// el que encuentre a NOMGEO, para que zoomEstado() y el resto de la lógica
+// sigan funcionando sin más cambios. Si no encuentra ninguno, lo avisa en
+// consola para que ajustes CAMPOS_NOMBRE_POSIBLES según lo que veas ahí.
+const CAMPOS_NOMBRE_POSIBLES = ['NOMGEO', 'nomgeo', 'NOM_ENT', 'nom_ent', 'ESTADO', 'estado', 'NOMBRE', 'nombre'];
+
+function normalizarCampoNombreEstado(featureCollection) {
+  if (!featureCollection || !Array.isArray(featureCollection.features)) return featureCollection;
+
+  if (featureCollection.features[0]) {
+    console.log('Propiedades recibidas del WFS de estados (revisar si NOMGEO viene distinto):',
+      featureCollection.features[0].properties);
+  }
+
+  featureCollection.features.forEach(f => {
+    if (!f.properties || f.properties.NOMGEO) return; // ya trae NOMGEO, no hay que tocarlo
+    const campoEncontrado = CAMPOS_NOMBRE_POSIBLES.find(campo => f.properties[campo] != null);
+    if (campoEncontrado) f.properties.NOMGEO = f.properties[campoEncontrado];
+  });
+
+  return featureCollection;
+}
+// ─────────────────────────────────────────────────────────────────────
 
   Promise.all([
-    fetch('assets/geojson/estados.geojson').then(r => r.json()),
+    fetch(WFS_ESTADOS_URL).then(r => r.json()).then(normalizarCampoNombreEstado),
     fetch('assets/data/acuiferos.json').then(r => r.json()),
     fetch('assets/geojson/acuiferos.geojson').then(r => r.json())
   ]).then(([geo, datos, geoAcuiferos]) => {
@@ -402,7 +442,9 @@ map.on('zoomend', actualizarVisibilidadEtiquetas);
     const overlay = document.getElementById('mapLoadingOverlay');
     if (overlay) {
       overlay.innerHTML = '<span style="color:#c0392b; font-size:13px; font-weight:600; padding:0 20px; text-align:center;">' +
-        'Error al cargar los datos del mapa. Verifique su conexión o los archivos de assets.</span>';
+        'Error al cargar los datos del mapa. Verifique su conexión, los archivos de assets, ' +
+        'o si el servicio WFS de estados está bloqueando la petición por política CORS ' +
+        '(revise la consola del navegador).</span>';
     }
     console.error('Error cargando GeoJSON/datos:', err);
   });
